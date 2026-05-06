@@ -13,7 +13,7 @@ O sistema original foi analisado sob a perspectiva de segurança da informação
 
 ## Integrantes do Grupo
 
-- [PREENCHER NOMES]
+- Henrique Cordeiro de Oliveira, Lucas Rogério Mendonça e Nicholas Scoz dos Santos
 
 ## Links
 
