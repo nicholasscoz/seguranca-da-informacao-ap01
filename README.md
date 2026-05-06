@@ -17,8 +17,8 @@ O sistema original foi analisado sob a perspectiva de segurança da informação
 
 ## Links
 
-- **Sistema publicado:** [PREENCHER URL DO GITHUB PAGES]
-- **Relatório técnico:** [ver arquivo PDF no repositório]
+- **Sistema publicado:** https://nicholasscoz.github.io/seguranca-da-informacao-ap01/
+- **Repositorio:** https://github.com/nicholasscoz/seguranca-da-informacao-ap01.git
 
 ## Principais Melhorias Implementadas
 
