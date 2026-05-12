@@ -1,837 +1,662 @@
-// ============================================================
-// SISTEMA DE OCORRÊNCIAS ACADÊMICAS — VERSÃO COM MELHORIAS DE SEGURANÇA
-// ============================================================
-// AVISO: Este é um protótipo front-end. Todas as proteções aqui
-// são simulações didáticas. Em produção, autenticação, autorização,
-// sessão, logs e persistência DEVEM estar no back-end/servidor.
-// ============================================================
+/**
+ * Sistema de Ocorrências Acadêmicas
+ * Versão com melhorias de segurança — protótipo didático
+ * Disciplina: Segurança da Informação — Católica SC
+ *
+ * AVISO: Este é um protótipo front-end. Todas as proteções são simuladas
+ * e podem ser contornadas via DevTools. Não use em produção com dados reais.
+ */
 
-"use strict";
+'use strict';
 
-// --- CONFIGURAÇÃO DE USUÁRIOS ---
-// MELHORIA: Senhas mais fortes (simulação). Em produção, senhas
-// NUNCA devem estar no código-fonte; devem ser hashes no servidor.
+/* ============================================================
+   1. CONFIGURAÇÃO DE USUÁRIOS (demonstração)
+   Em produção: senhas devem ser hashes no servidor (bcrypt/argon2).
+   Credenciais NUNCA devem ficar no front-end.
+   ============================================================ */
 const USERS = [
-  {
-    id: 1,
-    name: "Ana Souza",
-    email: "aluno@faculdade.local",
-    password: "Demo@2026",
-    role: "ALUNO",
-    studentId: "202400001"
-  },
-  {
-    id: 2,
-    name: "Prof. Carlos Lima",
-    email: "professor@faculdade.local",
-    password: "Demo@2026",
-    role: "PROFESSOR",
-    classes: ["5A", "5B"]
-  },
-  {
-    id: 3,
-    name: "Administrador Geral",
-    email: "admin@faculdade.local",
-    password: "Admin@2026",
-    role: "ADMIN"
-  }
+  { id: 'u1', name: 'Ana Alves',      email: 'aluno@faculdade.local',     role: 'aluno',          passwordHash: hashDemoPassword('Demo@2026') },
+  { id: 'u2', name: 'Prof. Carlos',   email: 'professor@faculdade.local', role: 'professor',      passwordHash: hashDemoPassword('Demo@2026') },
+  { id: 'u3', name: 'Administrador',  email: 'admin@faculdade.local',     role: 'administrador',  passwordHash: hashDemoPassword('Admin@2026') },
 ];
 
-// MELHORIA: Token secreto removido do código exposto.
-// Em produção, tokens são gerenciados pelo servidor e nunca ficam no front-end.
-
-const STORAGE_KEYS = {
-  session: "ocorrencias_sessao",
-  occurrences: "ocorrencias_registros",
-  audit: "ocorrencias_logs"
-};
-
-// MELHORIA: Configuração de sessão com timeout
-const SESSION_CONFIG = {
-  timeoutMinutes: 15,
-  maxLoginAttempts: 5,
-  lockoutMinutes: 2
-};
-
-// Controle de tentativas de login
-let loginAttempts = 0;
-let lockoutUntil = null;
-let sessionTimerInterval = null;
-let lastActivity = null;
-
-// --- DADOS INICIAIS ---
-// MELHORIA: Removidos CPF, e-mail pessoal e telefone dos dados iniciais
-// (minimização de dados conforme LGPD)
-const INITIAL_OCCURRENCES = [
-  {
-    id: "OC-1001",
-    studentName: "Marina Alves",
-    studentId: "202300145",
-    category: "Nota",
-    priority: "Média",
-    description: "Solicitação de revisão de nota da avaliação bimestral.",
-    internalNote: "Verificar com a coordenação antes de responder.",
-    status: "Aberta",
-    createdBy: "professor@faculdade.local",
-    createdAt: "2026-05-05T18:40:00.000Z"
-  },
-  {
-    id: "OC-1002",
-    studentName: "Rafael Martins",
-    studentId: "202200771",
-    category: "Frequência",
-    priority: "Alta",
-    description: "Aluno contesta lançamento de falta em aula prática.",
-    internalNote: "Conferir chamada manual.",
-    status: "Em análise",
-    createdBy: "professor@faculdade.local",
-    createdAt: "2026-05-05T18:50:00.000Z"
-  },
-  {
-    id: "OC-1003",
-    studentName: "Beatriz Costa",
-    studentId: "202100441",
-    category: "Solicitação administrativa",
-    priority: "Crítica",
-    description: "Solicitação envolvendo documentação acadêmica e prazo de matrícula.",
-    internalNote: "Priorizar atendimento.",
-    status: "Aberta",
-    createdBy: "admin@faculdade.local",
-    createdAt: "2026-05-05T19:00:00.000Z"
+/* Hash simples para demonstração — NÃO use em produção (use bcrypt/argon2 no servidor) */
+function hashDemoPassword(password) {
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    hash = (hash << 5) - hash + password.charCodeAt(i);
+    hash |= 0;
   }
-];
+  return 'demo_' + Math.abs(hash).toString(16);
+}
 
-// --- PERMISSÕES POR PERFIL (RBAC simulado) ---
+/* ============================================================
+   2. CONTROLE DE ACESSO (RBAC)
+   Princípio do menor privilégio: cada perfil tem apenas o necessário.
+   Em produção: validar no servidor a cada requisição.
+   ============================================================ */
 const PERMISSIONS = {
-  ALUNO: {
+  aluno: {
+    canViewOccurrences: true,     // apenas as próprias
     canCreateOccurrence: false,
+    canEditStatus: false,
+    canDeleteOccurrence: false,
+    canExport: false,
+    canViewLogs: false,
+    canClearLogs: false,
+    canRestore: false,
+    canViewInternalObs: false,
     canViewAllOccurrences: false,
-    canViewOwnOccurrences: true,
+  },
+  professor: {
+    canViewOccurrences: true,
+    canCreateOccurrence: true,
+    canEditStatus: true,
     canDeleteOccurrence: false,
-    canChangeStatus: false,
     canExport: false,
     canViewLogs: false,
     canClearLogs: false,
-    canReset: false,
-    canViewInternalNotes: false
-  },
-  PROFESSOR: {
-    canCreateOccurrence: true,
+    canRestore: false,
+    canViewInternalObs: false,
     canViewAllOccurrences: true,
-    canViewOwnOccurrences: true,
-    canDeleteOccurrence: false,
-    canChangeStatus: true,
-    canExport: false,
-    canViewLogs: false,
-    canClearLogs: false,
-    canReset: false,
-    canViewInternalNotes: false
   },
-  ADMIN: {
+  administrador: {
+    canViewOccurrences: true,
     canCreateOccurrence: true,
-    canViewAllOccurrences: true,
-    canViewOwnOccurrences: true,
+    canEditStatus: true,
     canDeleteOccurrence: true,
-    canChangeStatus: true,
     canExport: true,
     canViewLogs: true,
     canClearLogs: true,
-    canReset: true,
-    canViewInternalNotes: true
-  }
+    canRestore: true,
+    canViewInternalObs: true,
+    canViewAllOccurrences: true,
+  },
 };
 
-// --- REFERÊNCIAS DO DOM ---
-const loginView = document.querySelector("#loginView");
-const appView = document.querySelector("#appView");
-const loginForm = document.querySelector("#loginForm");
-const occurrenceForm = document.querySelector("#occurrenceForm");
-const logoutBtn = document.querySelector("#logoutBtn");
-const exportBtn = document.querySelector("#exportBtn");
-const clearLogsBtn = document.querySelector("#clearLogsBtn");
-const resetBtn = document.querySelector("#resetBtn");
-const searchInput = document.querySelector("#search");
-const loginError = document.querySelector("#loginError");
-const loginLockout = document.querySelector("#loginLockout");
-
-const sessionBadge = document.querySelector("#sessionBadge");
-const sessionTimer = document.querySelector("#sessionTimer");
-const currentUserName = document.querySelector("#currentUserName");
-const currentUserDetails = document.querySelector("#currentUserDetails");
-const currentRoleDisplay = document.querySelector("#currentRoleDisplay");
-const occurrencesTable = document.querySelector("#occurrencesTable");
-const auditLog = document.querySelector("#auditLog");
-const totalOccurrences = document.querySelector("#totalOccurrences");
-const criticalOccurrences = document.querySelector("#criticalOccurrences");
-const lastUpdate = document.querySelector("#lastUpdate");
-
-// --- FUNÇÕES UTILITÁRIAS DE SEGURANÇA ---
-
-// MELHORIA: Sanitização de strings para prevenir XSS
-function sanitizeHTML(str) {
-  if (typeof str !== "string") return "";
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-// MELHORIA: Validação de e-mail
-function isValidEmail(email) {
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return re.test(email);
-}
-
-// MELHORIA: Validação de matrícula (somente números, 6-12 dígitos)
-function isValidStudentId(id) {
-  return /^[0-9]{6,12}$/.test(id);
-}
-
-// MELHORIA: Verificação de permissão centralizada
-function hasPermission(permissionName) {
+function hasPermission(permission) {
   const session = getSession();
-  if (!session || !session.role) return false;
+  if (!session) return false;
   const perms = PERMISSIONS[session.role];
-  return perms ? perms[permissionName] === true : false;
+  return perms ? !!perms[permission] : false;
 }
 
-// --- FUNÇÕES DE PERSISTÊNCIA (localStorage) ---
+/* ============================================================
+   3. DADOS INICIAIS (sem CPF, e-mail pessoal ou telefone — LGPD art. 6, III)
+   ============================================================ */
+const INITIAL_DATA = [
+  { id: genId(), aluno: 'João Silva',    matricula: '2024001', tipo: 'Nota',        prioridade: 'Alta',  status: 'Aberto',   descricao: 'Nota abaixo da média na prova P1.',           obsInterna: 'Verificar histórico anterior.', criadoPor: 'u2', criadoEm: new Date(Date.now()-86400000*3).toISOString() },
+  { id: genId(), aluno: 'Maria Souza',   matricula: '2024002', tipo: 'Frequência',  prioridade: 'Média', status: 'Aberto',   descricao: 'Três faltas consecutivas sem justificativa.', obsInterna: '',                               criadoPor: 'u2', criadoEm: new Date(Date.now()-86400000*2).toISOString() },
+  { id: genId(), aluno: 'Pedro Santos',  matricula: '2024003', tipo: 'Comportamento', prioridade: 'Crítica', status: 'Em análise', descricao: 'Incidente durante aula prática.',       obsInterna: 'Aguardar reunião com coordenação.', criadoPor: 'u3', criadoEm: new Date(Date.now()-86400000).toISOString() },
+  { id: genId(), aluno: 'Ana Lima',      matricula: '2024004', tipo: 'Solicitação administrativa', prioridade: 'Baixa', status: 'Resolvido', descricao: 'Solicitação de revisão de prova.', obsInterna: '', criadoPor: 'u2', criadoEm: new Date(Date.now()-3600000).toISOString() },
+];
 
-function getOccurrences() {
+/* ============================================================
+   4. GERENCIAMENTO DE SESSÃO COM TIMEOUT
+   Em produção: usar JWT httpOnly cookie com validação no servidor.
+   ============================================================ */
+const SESSION_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos
+let sessionTimer = null;
+let sessionExpiry = null;
+let sessionWarned = false;
+
+function createSession(user) {
+  const session = {
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SESSION_TIMEOUT_MS,
+  };
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEYS.occurrences) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveOccurrences(occurrences) {
-  localStorage.setItem(STORAGE_KEYS.occurrences, JSON.stringify(occurrences));
-}
-
-function getAuditLogs() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEYS.audit) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveAuditLogs(logs) {
-  localStorage.setItem(STORAGE_KEYS.audit, JSON.stringify(logs));
+    localStorage.setItem('session', JSON.stringify(session));
+  } catch (e) { /* localStorage indisponível */ }
+  sessionExpiry = session.expiresAt;
+  return session;
 }
 
 function getSession() {
   try {
-    const session = JSON.parse(localStorage.getItem(STORAGE_KEYS.session) || "null");
-    if (session && session.expiresAt) {
-      if (new Date(session.expiresAt) < new Date()) {
-        // Sessão expirada
-        localStorage.removeItem(STORAGE_KEYS.session);
-        return null;
-      }
+    const raw = localStorage.getItem('session');
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    if (!session || !session.expiresAt) return null;
+    if (Date.now() > session.expiresAt) {
+      destroySession();
+      return null;
     }
     return session;
-  } catch {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
-function saveSession(user) {
-  // MELHORIA: Sessão com expiração
-  const sessionData = {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    // NÃO armazenamos a senha na sessão
-    loginAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + SESSION_CONFIG.timeoutMinutes * 60 * 1000).toISOString()
-  };
-  localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(sessionData));
-  lastActivity = Date.now();
+function destroySession() {
+  try { localStorage.removeItem('session'); } catch (e) {}
+  sessionExpiry = null;
+  if (sessionTimer) { clearInterval(sessionTimer); sessionTimer = null; }
 }
 
-// --- LOGS DE AUDITORIA ---
-
-function writeLog(action, detail) {
+function renewSession() {
   const session = getSession();
-  const logs = getAuditLogs();
-
-  // MELHORIA: Log não inclui dados pessoais sensíveis (CPF, e-mail pessoal)
-  logs.unshift({
-    when: new Date().toISOString(),
-    user: session ? session.email : "anonimo",
-    role: session ? session.role : "SEM_SESSAO",
-    action,
-    detail: typeof detail === "string" ? detail.substring(0, 500) : ""
-  });
-
-  // MELHORIA: Limitar tamanho do log (máximo 500 entradas)
-  if (logs.length > 500) {
-    logs.length = 500;
-  }
-
-  saveAuditLogs(logs);
+  if (!session) return;
+  session.expiresAt = Date.now() + SESSION_TIMEOUT_MS;
+  sessionExpiry = session.expiresAt;
+  sessionWarned = false;
+  try { localStorage.setItem('session', JSON.stringify(session)); } catch (e) {}
 }
-
-// --- CONTROLE DE SESSÃO E TIMER ---
 
 function startSessionTimer() {
-  clearInterval(sessionTimerInterval);
-  sessionTimer.classList.remove("hidden");
-
-  sessionTimerInterval = setInterval(() => {
+  if (sessionTimer) clearInterval(sessionTimer);
+  sessionWarned = false;
+  sessionTimer = setInterval(() => {
     const session = getSession();
-    if (!session || !session.expiresAt) {
-      clearInterval(sessionTimerInterval);
-      sessionTimer.classList.add("hidden");
+    if (!session) {
+      clearInterval(sessionTimer);
+      showLoginView();
       return;
     }
-
-    const remaining = new Date(session.expiresAt) - new Date();
+    const remaining = session.expiresAt - Date.now();
+    const timerEl = document.getElementById('sessionTimerDisplay');
+    if (timerEl) {
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      timerEl.textContent = `Sessão: ${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+      if (remaining < 60000) {
+        timerEl.classList.add('warning');
+        if (!sessionWarned) {
+          sessionWarned = true;
+          alert('⚠️ Sua sessão expirará em 1 minuto. Qualquer ação a renovará.');
+        }
+      } else {
+        timerEl.classList.remove('warning');
+      }
+    }
     if (remaining <= 0) {
-      clearInterval(sessionTimerInterval);
-      writeLog("SESSAO_EXPIRADA", "Sessão encerrada automaticamente por inatividade.");
-      logout();
-      alert("Sua sessão expirou. Faça login novamente.");
-      return;
-    }
-
-    const mins = Math.floor(remaining / 60000);
-    const secs = Math.floor((remaining % 60000) / 1000);
-    sessionTimer.textContent = `⏱ ${mins}:${secs.toString().padStart(2, "0")}`;
-
-    // Aviso quando restam 2 minutos
-    if (remaining < 120000) {
-      sessionTimer.style.color = "var(--danger)";
-    } else {
-      sessionTimer.style.color = "";
+      destroySession();
+      alert('⏱️ Sessão expirada por inatividade. Faça login novamente.');
+      showLoginView();
     }
   }, 1000);
 }
 
-// MELHORIA: Renovar sessão a cada interação
-function renewSession() {
+/* Renova sessão em qualquer interação */
+document.addEventListener('click', () => { if (getSession()) renewSession(); });
+document.addEventListener('keydown', () => { if (getSession()) renewSession(); });
+
+/* ============================================================
+   5. CONTROLE DE TENTATIVAS DE LOGIN (lockout)
+   Em produção: implementar no servidor com rate limiting.
+   ============================================================ */
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MS = 2 * 60 * 1000; // 2 minutos
+
+function getLoginAttempts() {
+  try {
+    const raw = localStorage.getItem('loginAttempts');
+    return raw ? JSON.parse(raw) : { count: 0, lockedUntil: 0 };
+  } catch { return { count: 0, lockedUntil: 0 }; }
+}
+function setLoginAttempts(data) {
+  try { localStorage.setItem('loginAttempts', JSON.stringify(data)); } catch {}
+}
+function resetLoginAttempts() {
+  try { localStorage.removeItem('loginAttempts'); } catch {}
+}
+
+/* ============================================================
+   6. SANITIZAÇÃO XSS
+   Converte HTML especial em entidades para evitar injeção de scripts.
+   Em produção: sanitizar também no servidor.
+   ============================================================ */
+function sanitizeHTML(str) {
+  if (typeof str !== 'string') return '';
+  const el = document.createElement('div');
+  el.textContent = str;
+  return el.innerHTML;
+}
+
+/* ============================================================
+   7. ARMAZENAMENTO DE DADOS
+   ============================================================ */
+function loadOccurrences() {
+  try {
+    const raw = localStorage.getItem('occurrences');
+    if (!raw) {
+      saveOccurrences(INITIAL_DATA);
+      return [...INITIAL_DATA];
+    }
+    return JSON.parse(raw);
+  } catch { return [...INITIAL_DATA]; }
+}
+
+function saveOccurrences(data) {
+  try { localStorage.setItem('occurrences', JSON.stringify(data)); } catch {}
+}
+
+function loadLogs() {
+  try {
+    const raw = localStorage.getItem('auditLogs');
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveLogs(logs) {
+  try { localStorage.setItem('auditLogs', JSON.stringify(logs)); } catch {}
+}
+
+/* ============================================================
+   8. LOGS DE AUDITORIA (sem dados pessoais extensos)
+   Registra apenas matrícula e ID — sem CPF, descrição completa, etc.
+   Em produção: logs devem ser append-only no servidor.
+   ============================================================ */
+function addLog(action, details) {
+  if (!hasPermission('canViewOccurrences')) return;
   const session = getSession();
-  if (session) {
-    session.expiresAt = new Date(Date.now() + SESSION_CONFIG.timeoutMinutes * 60 * 1000).toISOString();
-    localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(session));
-    lastActivity = Date.now();
-  }
+  const logs = loadLogs();
+  const entry = {
+    ts: new Date().toISOString(),
+    user: session ? session.email : 'desconhecido',
+    role: session ? session.role : '—',
+    action,
+    details, // apenas matrícula e ID, nunca dados pessoais completos
+  };
+  logs.unshift(entry);
+  if (logs.length > 500) logs.splice(500); // limitar tamanho
+  saveLogs(logs);
 }
 
-// Listener para renovar sessão em ações do usuário
-document.addEventListener("click", renewSession);
-document.addEventListener("keydown", renewSession);
-
-// --- VIEWS ---
-
-function showLogin() {
-  loginView.classList.remove("hidden");
-  appView.classList.add("hidden");
-  logoutBtn.classList.add("hidden");
-  sessionTimer.classList.add("hidden");
-  sessionBadge.textContent = "Sessão não iniciada";
-  sessionBadge.classList.add("muted");
-  clearInterval(sessionTimerInterval);
-
-  // Limpar campos do formulário de login
-  document.querySelector("#email").value = "";
-  document.querySelector("#password").value = "";
-  loginError.classList.add("hidden");
+/* ============================================================
+   9. UTILITÁRIOS
+   ============================================================ */
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
 }
 
-function showApp(user) {
-  loginView.classList.add("hidden");
-  appView.classList.remove("hidden");
-  logoutBtn.classList.remove("hidden");
+function showEl(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
+function hideEl(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+function showAlert(id, msg) { const el = document.getElementById(id); if (el) { el.textContent = msg; el.style.display = ''; } }
+function hideAlert(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
-  sessionBadge.textContent = `${sanitizeHTML(user.name)} — ${sanitizeHTML(user.role)}`;
-  sessionBadge.classList.remove("muted");
+/* ============================================================
+   10. LOGIN
+   ============================================================ */
+function handleLogin() {
+  const emailRaw = document.getElementById('inputEmail').value.trim();
+  const passwordRaw = document.getElementById('inputPassword').value;
+  hideAlert('loginAlert');
+  hideAlert('loginLockAlert');
 
-  currentUserName.textContent = user.name;
-  currentUserDetails.textContent = user.email;
-  currentRoleDisplay.textContent = translateRole(user.role);
-
-  // MELHORIA: Aplicar RBAC — exibir/ocultar seções conforme perfil
-  applyPermissions(user.role);
-
-  startSessionTimer();
-  render();
-}
-
-function translateRole(role) {
-  const roles = { ALUNO: "Aluno", PROFESSOR: "Professor", ADMIN: "Administrador" };
-  return roles[role] || role;
-}
-
-// MELHORIA: Controle de acesso baseado em perfil (RBAC)
-function applyPermissions(role) {
-  const perms = PERMISSIONS[role] || {};
-
-  // Formulário de ocorrência
-  const occurrenceSection = document.querySelector("#occurrenceSection");
-  if (perms.canCreateOccurrence) {
-    occurrenceSection.classList.remove("hidden");
-  } else {
-    occurrenceSection.classList.add("hidden");
-  }
-
-  // Botões de ação
-  exportBtn.classList.toggle("hidden", !perms.canExport);
-  clearLogsBtn.classList.toggle("hidden", !perms.canClearLogs);
-  resetBtn.classList.toggle("hidden", !perms.canReset);
-
-  // Mensagem quando não há ações
-  const noActionsMsg = document.querySelector("#noActionsMsg");
-  if (!perms.canExport && !perms.canClearLogs && !perms.canReset) {
-    noActionsMsg.classList.remove("hidden");
-  } else {
-    noActionsMsg.classList.add("hidden");
-  }
-
-  // Observação interna (só admin)
-  const internalNoteLabel = document.querySelector("#internalNoteLabel");
-  if (perms.canViewInternalNotes) {
-    internalNoteLabel.classList.remove("hidden");
-  } else {
-    internalNoteLabel.classList.add("hidden");
-  }
-
-  // Tabela de ocorrências
-  const tableSection = document.querySelector("#tableSection");
-  if (perms.canViewAllOccurrences || perms.canViewOwnOccurrences) {
-    tableSection.classList.remove("hidden");
-  } else {
-    tableSection.classList.add("hidden");
-  }
-
-  // Coluna de ações na tabela
-  const actionsHeader = document.querySelector("#actionsHeader");
-  if (perms.canChangeStatus || perms.canDeleteOccurrence) {
-    actionsHeader.classList.remove("hidden");
-  } else {
-    actionsHeader.classList.add("hidden");
-  }
-
-  // Logs (só admin)
-  const logsSection = document.querySelector("#logsSection");
-  if (perms.canViewLogs) {
-    logsSection.classList.remove("hidden");
-  } else {
-    logsSection.classList.add("hidden");
-  }
-}
-
-// --- AUTENTICAÇÃO ---
-
-function login(email, password) {
-  // MELHORIA: Verificar lockout
-  if (lockoutUntil && new Date() < lockoutUntil) {
-    const remaining = Math.ceil((lockoutUntil - new Date()) / 1000);
-    loginLockout.textContent = `Muitas tentativas. Aguarde ${remaining} segundos.`;
-    loginLockout.classList.remove("hidden");
+  // Verifica lockout
+  const attempts = getLoginAttempts();
+  if (attempts.lockedUntil > Date.now()) {
+    const remaining = Math.ceil((attempts.lockedUntil - Date.now()) / 1000);
+    showAlert('loginLockAlert', `⛔ Muitas tentativas falhas. Aguarde ${remaining} segundos.`);
     return;
   }
 
-  loginLockout.classList.add("hidden");
-
-  // MELHORIA: Validação de entrada
-  if (!email || !isValidEmail(email)) {
-    loginError.textContent = "Informe um e-mail válido.";
-    loginError.classList.remove("hidden");
+  // Validação básica de entrada
+  if (!emailRaw || !passwordRaw) {
+    showAlert('loginAlert', 'Preencha e-mail e senha.');
     return;
   }
 
-  if (!password || password.length < 4) {
-    loginError.textContent = "Informe a senha.";
-    loginError.classList.remove("hidden");
-    return;
-  }
+  const user = USERS.find(u => u.email === emailRaw);
+  const inputHash = hashDemoPassword(passwordRaw);
+  const valid = user && user.passwordHash === inputHash;
 
-  const user = USERS.find((item) => item.email === email && item.password === password);
-
-  if (!user) {
-    loginAttempts++;
-    // MELHORIA: Mensagem genérica (não revela se é o e-mail ou a senha que está errado)
-    loginError.textContent = "Credenciais inválidas.";
-    loginError.classList.remove("hidden");
-
-    writeLog("LOGIN_FALHOU", `Tentativa ${loginAttempts} de login falhou.`);
-
-    // MELHORIA: Bloqueio após tentativas excessivas
-    if (loginAttempts >= SESSION_CONFIG.maxLoginAttempts) {
-      lockoutUntil = new Date(Date.now() + SESSION_CONFIG.lockoutMinutes * 60 * 1000);
-      loginLockout.textContent = `Conta bloqueada por ${SESSION_CONFIG.lockoutMinutes} minutos por excesso de tentativas.`;
-      loginLockout.classList.remove("hidden");
-      loginError.classList.add("hidden");
-      writeLog("LOGIN_BLOQUEADO", `Bloqueio por ${SESSION_CONFIG.lockoutMinutes} min após ${loginAttempts} tentativas.`);
-      loginAttempts = 0;
+  if (!valid) {
+    attempts.count = (attempts.count || 0) + 1;
+    if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
+      attempts.lockedUntil = Date.now() + LOCKOUT_MS;
+      setLoginAttempts(attempts);
+      showAlert('loginLockAlert', `⛔ Conta bloqueada por ${LOCKOUT_MS / 60000} minutos após ${MAX_LOGIN_ATTEMPTS} tentativas.`);
+    } else {
+      setLoginAttempts(attempts);
+      // Mensagem genérica — não revela qual campo está errado
+      showAlert('loginAlert', `Credenciais inválidas. Tentativa ${attempts.count} de ${MAX_LOGIN_ATTEMPTS}.`);
     }
     return;
   }
 
   // Login bem-sucedido
-  loginAttempts = 0;
-  lockoutUntil = null;
-  loginError.classList.add("hidden");
-
-  saveSession(user);
-  writeLog("LOGIN_OK", `Usuário ${user.email} entrou no sistema com perfil ${user.role}.`);
-  showApp(getSession());
+  resetLoginAttempts();
+  createSession(user);
+  addLog('LOGIN', `Acesso realizado`);
+  showDashboard(user);
 }
 
+/* Permitir Enter no campo senha */
+document.addEventListener('DOMContentLoaded', () => {
+  const passField = document.getElementById('inputPassword');
+  if (passField) passField.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  const emailField = document.getElementById('inputEmail');
+  if (emailField) emailField.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+
+  // Verificar sessão existente ao carregar
+  const session = getSession();
+  if (session) {
+    const user = USERS.find(u => u.id === session.userId);
+    if (user) { showDashboard(user); return; }
+  }
+  showLoginView();
+});
+
+/* ============================================================
+   11. EXIBIÇÃO DE VIEWS
+   ============================================================ */
+function showLoginView() {
+  hideEl('sectionDashboard');
+  hideEl('headerSession');
+  showEl('sectionLogin');
+  document.getElementById('inputEmail').value = '';
+  document.getElementById('inputPassword').value = '';
+  hideAlert('loginAlert');
+  hideAlert('loginLockAlert');
+}
+
+function showDashboard(user) {
+  hideEl('sectionLogin');
+  showEl('sectionDashboard');
+  showEl('headerSession');
+
+  // Renderizar info do usuário
+  document.getElementById('displayUserName').textContent = sanitizeHTML(user.name);
+  document.getElementById('displayUserEmail').textContent = sanitizeHTML(user.email);
+  const roleEl = document.getElementById('displayUserRole');
+  roleEl.textContent = `Perfil: ${user.role}`;
+  roleEl.className = `badge badge-role-${user.role}`;
+
+  // Controle de visibilidade por perfil (RBAC)
+  setIfPermission('btnExport', 'canExport');
+  setIfPermission('btnClearLogs', 'canClearLogs');
+  setIfPermission('btnRestore', 'canRestore');
+  setIfPermission('sectionNewOccurrence', 'canCreateOccurrence');
+  setIfPermission('sectionLogs', 'canViewLogs');
+  setIfPermission('adminObsGroup', 'canViewInternalObs');
+
+  // Mostrar/ocultar "Nenhuma ação disponível"
+  const hasActions = hasPermission('canExport') || hasPermission('canClearLogs') || hasPermission('canRestore');
+  document.getElementById('noActionsMsg').style.display = hasActions ? 'none' : '';
+
+  startSessionTimer();
+  renderOccurrences();
+  if (hasPermission('canViewLogs')) renderLogs();
+}
+
+function setIfPermission(elId, permission) {
+  const el = document.getElementById(elId);
+  if (el) el.style.display = hasPermission(permission) ? '' : 'none';
+}
+
+/* ============================================================
+   12. LOGOUT
+   ============================================================ */
 function logout() {
-  const session = getSession();
-  writeLog("LOGOUT", session ? `${session.email} saiu do sistema.` : "Sessão encerrada.");
-  localStorage.removeItem(STORAGE_KEYS.session);
-  clearInterval(sessionTimerInterval);
-  showLogin();
+  addLog('LOGOUT', 'Sessão encerrada pelo usuário');
+  destroySession();
+  showLoginView();
 }
 
-// --- OCORRÊNCIAS ---
+/* ============================================================
+   13. OCORRÊNCIAS — SALVAR
+   ============================================================ */
+function saveOccurrence() {
+  if (!hasPermission('canCreateOccurrence')) {
+    alert('Você não tem permissão para cadastrar ocorrências.');
+    return;
+  }
 
-function createOccurrence(event) {
-  event.preventDefault();
+  hideAlert('occurrenceAlert');
 
-  // MELHORIA: Verificar permissão
-  if (!hasPermission("canCreateOccurrence")) {
-    alert("Você não tem permissão para criar ocorrências.");
-    writeLog("ACESSO_NEGADO", "Tentativa de criar ocorrência sem permissão.");
+  const aluno = document.getElementById('occAluno').value.trim();
+  const matricula = document.getElementById('occMatricula').value.trim();
+  const tipo = document.getElementById('occTipo').value;
+  const prioridade = document.getElementById('occPrioridade').value;
+  const descricao = document.getElementById('occDescricao').value.trim();
+  const obsInterna = hasPermission('canViewInternalObs') ? document.getElementById('occObsInterna').value.trim() : '';
+  const consentimento = document.getElementById('occConsentimento').checked;
+
+  // Validação obrigatória
+  if (!aluno || !matricula || !tipo || !prioridade || !descricao) {
+    showAlert('occurrenceAlert', 'Preencha todos os campos obrigatórios.');
+    return;
+  }
+  if (!consentimento) {
+    showAlert('occurrenceAlert', 'Confirme o termo de uso de dados fictícios.');
+    return;
+  }
+  if (!/^[A-Za-z0-9\-]+$/.test(matricula)) {
+    showAlert('occurrenceAlert', 'Matrícula deve conter apenas letras, números e hifens.');
     return;
   }
 
   const session = getSession();
-  if (!session) {
-    alert("Sessão expirada. Faça login novamente.");
-    showLogin();
-    return;
-  }
-
-  // MELHORIA: Validação de campos obrigatórios
-  const studentName = document.querySelector("#studentName").value.trim();
-  const studentId = document.querySelector("#studentId").value.trim();
-  const category = document.querySelector("#category").value;
-  const priority = document.querySelector("#priority").value;
-  const description = document.querySelector("#description").value.trim();
-  const privacyAck = document.querySelector("#privacyAck").checked;
-
-  if (!studentName) {
-    alert("Informe o nome do aluno.");
-    return;
-  }
-
-  if (!isValidStudentId(studentId)) {
-    alert("Matrícula inválida. Use entre 6 e 12 dígitos numéricos.");
-    return;
-  }
-
-  if (!category) {
-    alert("Selecione o tipo de ocorrência.");
-    return;
-  }
-
-  if (!priority) {
-    alert("Selecione a prioridade.");
-    return;
-  }
-
-  if (!description) {
-    alert("Informe a descrição da ocorrência.");
-    return;
-  }
-
-  if (!privacyAck) {
-    alert("Você precisa confirmar o checkbox de consentimento.");
-    return;
-  }
-
-  const internalNote = hasPermission("canViewInternalNotes")
-    ? (document.querySelector("#internalNote").value.trim() || "")
-    : "";
-
-  // MELHORIA: ID sequencial em vez de aleatório (evita colisão)
-  const occurrences = getOccurrences();
-  const maxId = occurrences.reduce((max, oc) => {
-    const num = parseInt(oc.id.replace("OC-", ""), 10);
-    return num > max ? num : max;
-  }, 1000);
-
-  const occurrence = {
-    id: `OC-${maxId + 1}`,
-    studentName: sanitizeHTML(studentName),
-    studentId: sanitizeHTML(studentId),
-    category: sanitizeHTML(category),
-    priority: sanitizeHTML(priority),
-    description: sanitizeHTML(description),
-    internalNote: sanitizeHTML(internalNote),
-    status: "Aberta",
-    createdBy: session.email,
-    createdAt: new Date().toISOString()
+  const occ = {
+    id: genId(),
+    aluno: aluno.substring(0, 100),
+    matricula: matricula.substring(0, 20),
+    tipo,
+    prioridade,
+    status: 'Aberto',
+    descricao: descricao.substring(0, 1000),
+    obsInterna: obsInterna.substring(0, 500),
+    criadoPor: session ? session.userId : 'desconhecido',
+    criadoEm: new Date().toISOString(),
   };
 
-  occurrences.unshift(occurrence);
-  saveOccurrences(occurrences);
+  const data = loadOccurrences();
+  data.push(occ);
+  saveOccurrences(data);
 
-  // MELHORIA: Log não expõe dados pessoais completos
-  writeLog("OCORRENCIA_CRIADA", `Ocorrência ${occurrence.id} criada para aluno matrícula ${occurrence.studentId}.`);
+  // Log sem dados pessoais extensos
+  addLog('CRIAR_OCORRENCIA', `Matrícula: ${sanitizeHTML(matricula)} | ID: ${occ.id}`);
 
-  occurrenceForm.reset();
-  render();
-}
-
-function deleteOccurrence(id) {
-  // MELHORIA: Verificar permissão
-  if (!hasPermission("canDeleteOccurrence")) {
-    alert("Você não tem permissão para excluir ocorrências.");
-    writeLog("ACESSO_NEGADO", `Tentativa de excluir ocorrência ${sanitizeHTML(id)} sem permissão.`);
-    return;
-  }
-
-  // MELHORIA: Confirmação antes de excluir
-  if (!confirm(`Tem certeza que deseja excluir a ocorrência ${id}? Esta ação não pode ser desfeita.`)) {
-    return;
-  }
-
-  const occurrences = getOccurrences();
-  const updated = occurrences.filter((item) => item.id !== id);
-
-  saveOccurrences(updated);
-  // MELHORIA: Log não inclui o JSON completo do registro
-  writeLog("OCORRENCIA_EXCLUIDA", `Ocorrência ${sanitizeHTML(id)} excluída.`);
-  render();
-}
-
-function changeStatus(id, status) {
-  // MELHORIA: Verificar permissão
-  if (!hasPermission("canChangeStatus")) {
-    alert("Você não tem permissão para alterar o status de ocorrências.");
-    writeLog("ACESSO_NEGADO", `Tentativa de alterar status de ${sanitizeHTML(id)} sem permissão.`);
-    return;
-  }
-
-  const occurrences = getOccurrences();
-  const occurrence = occurrences.find((item) => item.id === id);
-
-  if (!occurrence) return;
-
-  occurrence.status = status;
-  occurrence.updatedAt = new Date().toISOString();
-  occurrence.updatedBy = getSession() ? getSession().email : "desconhecido";
-
-  saveOccurrences(occurrences);
-  writeLog("STATUS_ALTERADO", `Ocorrência ${sanitizeHTML(id)} alterada para ${sanitizeHTML(status)}.`);
-  render();
-}
-
-// --- EXPORTAÇÃO ---
-
-function exportData() {
-  // MELHORIA: Verificar permissão
-  if (!hasPermission("canExport")) {
-    alert("Você não tem permissão para exportar dados.");
-    writeLog("ACESSO_NEGADO", "Tentativa de exportação sem permissão.");
-    return;
-  }
-
-  // MELHORIA: Exportar apenas ocorrências (sem senhas, tokens, localStorage completo)
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    exportedBy: getSession() ? getSession().email : "desconhecido",
-    occurrences: getOccurrences()
-    // NÃO exporta: USERS (senhas), FAKE_API_TOKEN, localStorage completo, logs
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json"
+  // Limpar formulário
+  ['occAluno','occMatricula','occDescricao','occObsInterna'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
   });
+  document.getElementById('occTipo').value = '';
+  document.getElementById('occPrioridade').value = '';
+  document.getElementById('occConsentimento').checked = false;
 
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `ocorrencias-export-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-
-  writeLog("EXPORTACAO", "Usuário exportou as ocorrências do sistema.");
+  renderOccurrences();
+  if (hasPermission('canViewLogs')) renderLogs();
+  showAlert('occurrenceAlert', '✅ Ocorrência registrada com sucesso.');
+  document.getElementById('occurrenceAlert').className = 'alert alert-success';
+  setTimeout(() => hideAlert('occurrenceAlert'), 3000);
 }
 
-function clearLogs() {
-  if (!hasPermission("canClearLogs")) {
-    alert("Você não tem permissão para limpar logs.");
-    return;
-  }
-
-  if (!confirm("Tem certeza que deseja limpar todos os logs? Esta ação será registrada.")) {
-    return;
-  }
-
-  writeLog("LOGS_LIMPOS", "Usuário limpou os logs de auditoria.");
-  saveAuditLogs([{
-    when: new Date().toISOString(),
-    user: getSession() ? getSession().email : "desconhecido",
-    role: getSession() ? getSession().role : "SEM_SESSAO",
-    action: "LOGS_LIMPOS",
-    detail: "Histórico de logs limpo. Este é o registro da limpeza."
-  }]);
-  render();
-}
-
-function resetData() {
-  if (!hasPermission("canReset")) {
-    alert("Você não tem permissão para restaurar dados.");
-    return;
-  }
-
-  if (!confirm("Restaurar todos os dados para o estado inicial? Todos os registros serão perdidos.")) {
-    return;
-  }
-
-  localStorage.setItem(STORAGE_KEYS.occurrences, JSON.stringify(INITIAL_OCCURRENCES));
-  localStorage.setItem(STORAGE_KEYS.audit, JSON.stringify([]));
-  writeLog("RESET_DADOS", "Dados restaurados ao estado inicial.");
-  render();
-}
-
-// --- RENDERIZAÇÃO ---
-
-function render() {
+/* ============================================================
+   14. OCORRÊNCIAS — RENDERIZAR
+   Alunos veem apenas as próprias ocorrências por matrícula simulada.
+   ============================================================ */
+function renderOccurrences() {
   const session = getSession();
   if (!session) return;
 
-  const term = searchInput ? searchInput.value.toLowerCase().trim() : "";
-  const occurrences = getOccurrences();
-  const perms = PERMISSIONS[session.role] || {};
+  const data = loadOccurrences();
+  const search = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
 
-  // MELHORIA: Filtrar ocorrências conforme perfil
-  let visibleOccurrences = occurrences;
-  if (!perms.canViewAllOccurrences && perms.canViewOwnOccurrences) {
-    // Aluno: vê apenas ocorrências relacionadas à própria matrícula
-    const user = USERS.find(u => u.email === session.email);
-    if (user && user.studentId) {
-      visibleOccurrences = occurrences.filter(oc => oc.studentId === user.studentId);
-    } else {
-      visibleOccurrences = [];
-    }
+  // Filtro de perfil: aluno vê apenas ocorrências de sua matrícula simulada
+  // (na demo, aluno não tem matrícula real; apenas exibe mensagem informativa)
+  let filtered = data;
+  if (!hasPermission('canViewAllOccurrences')) {
+    filtered = []; // Aluno não vê ocorrências de outros
   }
 
-  // Aplicar busca (sem expor CPF, e-mail pessoal, telefone na busca)
-  const filtered = visibleOccurrences.filter((item) => {
-    if (!term) return true;
-    const searchable = [
-      item.studentName,
-      item.studentId,
-      item.category,
-      item.priority,
-      item.status,
-      item.description
-    ].join(" ").toLowerCase();
-    return searchable.includes(term);
+  // Filtro de busca (apenas nome e matrícula — sem expor CPF ou e-mail)
+  if (search) {
+    filtered = filtered.filter(o =>
+      o.aluno.toLowerCase().includes(search) ||
+      o.matricula.toLowerCase().includes(search)
+    );
+  }
+
+  // Estatísticas
+  document.getElementById('statTotal').textContent = filtered.length;
+  document.getElementById('statCritical').textContent = filtered.filter(o => o.prioridade === 'Crítica').length;
+
+  const container = document.getElementById('occurrencesList');
+
+  if (!session || !hasPermission('canViewOccurrences')) {
+    container.innerHTML = '<p class="text-muted text-center">Sem permissão para visualizar registros.</p>';
+    return;
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<p class="text-muted text-center">Nenhuma ocorrência encontrada.</p>';
+    return;
+  }
+
+  // Construir tabela (sanitizando todos os dados antes de renderizar)
+  let html = `<div style="overflow-x:auto"><table class="occ-table">
+    <thead><tr>
+      <th>Aluno</th><th>Matrícula</th><th>Tipo</th>
+      <th>Prioridade</th><th>Status</th><th>Descrição</th>
+      ${hasPermission('canViewInternalObs') ? '<th>Obs. interna</th>' : ''}
+      ${hasPermission('canEditStatus') || hasPermission('canDeleteOccurrence') ? '<th>Ações</th>' : ''}
+    </tr></thead><tbody>`;
+
+  filtered.forEach(o => {
+    const actions = [];
+    if (hasPermission('canEditStatus')) {
+      actions.push(`<select class="status-select" onchange="changeStatus('${sanitizeHTML(o.id)}', this.value)">
+        <option ${o.status==='Aberto'?'selected':''}>Aberto</option>
+        <option ${o.status==='Em análise'?'selected':''}>Em análise</option>
+        <option ${o.status==='Resolvido'?'selected':''}>Resolvido</option>
+        <option ${o.status==='Arquivado'?'selected':''}>Arquivado</option>
+      </select>`);
+    }
+    if (hasPermission('canDeleteOccurrence')) {
+      actions.push(`<button class="btn-icon" title="Excluir" onclick="deleteOccurrence('${sanitizeHTML(o.id)}')">🗑️</button>`);
+    }
+
+    html += `<tr>
+      <td>${sanitizeHTML(o.aluno)}</td>
+      <td><code>${sanitizeHTML(o.matricula)}</code></td>
+      <td>${sanitizeHTML(o.tipo)}</td>
+      <td><span class="priority-badge priority-${sanitizeHTML(o.prioridade)}">${sanitizeHTML(o.prioridade)}</span></td>
+      <td>${sanitizeHTML(o.status)}</td>
+      <td style="max-width:200px;word-break:break-word">${sanitizeHTML(o.descricao)}</td>
+      ${hasPermission('canViewInternalObs') ? `<td class="obs-interna-cell">${sanitizeHTML(o.obsInterna || '—')}</td>` : ''}
+      ${actions.length ? `<td><div class="inline-status">${actions.join('')}</div></td>` : ''}
+    </tr>`;
   });
 
-  totalOccurrences.textContent = visibleOccurrences.length;
-  criticalOccurrences.textContent = visibleOccurrences.filter((item) => item.priority === "Crítica").length;
-  lastUpdate.textContent = `Atualizado em ${new Date().toLocaleTimeString("pt-BR")}`;
-
-  // MELHORIA: Renderização com sanitização e controle de colunas conforme perfil
-  occurrencesTable.innerHTML = filtered.map((item) => {
-    let actionsCol = "";
-    if (perms.canChangeStatus || perms.canDeleteOccurrence) {
-      actionsCol = `<td><div class="row-actions">`;
-      if (perms.canChangeStatus) {
-        actionsCol += `
-          <button class="btn secondary" onclick="changeStatus('${sanitizeHTML(item.id)}', 'Em análise')">Em análise</button>
-          <button class="btn secondary" onclick="changeStatus('${sanitizeHTML(item.id)}', 'Resolvida')">Resolver</button>
-        `;
-      }
-      if (perms.canDeleteOccurrence) {
-        actionsCol += `<button class="btn danger" onclick="deleteOccurrence('${sanitizeHTML(item.id)}')">Excluir</button>`;
-      }
-      actionsCol += `</div></td>`;
-    }
-
-    // MELHORIA: Observação interna só aparece para admin
-    const internalNoteHTML = perms.canViewInternalNotes && item.internalNote
-      ? `<br/><em class="muted-text">Obs. interna: ${sanitizeHTML(item.internalNote)}</em>`
-      : "";
-
-    return `
-      <tr>
-        <td><strong>${sanitizeHTML(item.studentName)}</strong></td>
-        <td>${sanitizeHTML(item.studentId)}</td>
-        <td>${sanitizeHTML(item.category)}</td>
-        <td><span class="priority ${sanitizeHTML(item.priority)}">${sanitizeHTML(item.priority)}</span></td>
-        <td>${sanitizeHTML(item.status)}</td>
-        <td>${sanitizeHTML(item.description)}${internalNoteHTML}</td>
-        ${actionsCol}
-      </tr>
-    `;
-  }).join("");
-
-  // Renderizar logs (apenas se admin)
-  if (perms.canViewLogs) {
-    const logs = getAuditLogs();
-    if (logs.length === 0) {
-      auditLog.innerHTML = `<div class="notice">Nenhum log registrado.</div>`;
-    } else {
-      auditLog.innerHTML = logs.map((log) => `
-        <div class="log-item">
-          <strong>${sanitizeHTML(log.when)}</strong><br />
-          usuário=${sanitizeHTML(log.user || "—")} | perfil=${sanitizeHTML(log.role || "—")} | ação=${sanitizeHTML(log.action)}<br />
-          detalhe=${sanitizeHTML(log.detail)}
-        </div>
-      `).join("");
-    }
-  }
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
 }
 
-// --- INICIALIZAÇÃO ---
+/* ============================================================
+   15. ALTERAR STATUS
+   ============================================================ */
+function changeStatus(id, newStatus) {
+  if (!hasPermission('canEditStatus')) { alert('Sem permissão.'); return; }
+  const data = loadOccurrences();
+  const occ = data.find(o => o.id === id);
+  if (!occ) return;
+  const oldStatus = occ.status;
+  occ.status = newStatus;
+  saveOccurrences(data);
+  addLog('ALTERAR_STATUS', `ID: ${id} | ${oldStatus} → ${newStatus}`);
+  renderOccurrences();
+  if (hasPermission('canViewLogs')) renderLogs();
+}
 
-function boot() {
-  if (!localStorage.getItem(STORAGE_KEYS.occurrences)) {
-    localStorage.setItem(STORAGE_KEYS.occurrences, JSON.stringify(INITIAL_OCCURRENCES));
+/* ============================================================
+   16. EXCLUIR OCORRÊNCIA (apenas admin, com confirmação)
+   ============================================================ */
+function deleteOccurrence(id) {
+  if (!hasPermission('canDeleteOccurrence')) { alert('Sem permissão.'); return; }
+  if (!confirm('⚠️ Confirma a exclusão desta ocorrência? Esta ação não pode ser desfeita.')) return;
+  const data = loadOccurrences().filter(o => o.id !== id);
+  saveOccurrences(data);
+  addLog('EXCLUIR_OCORRENCIA', `ID: ${id}`);
+  renderOccurrences();
+  if (hasPermission('canViewLogs')) renderLogs();
+}
+
+/* ============================================================
+   17. EXPORTAÇÃO SEGURA (sem senhas, tokens ou localStorage completo)
+   ============================================================ */
+function exportData() {
+  if (!hasPermission('canExport')) { alert('Sem permissão para exportar.'); return; }
+  if (!confirm('Exportar ocorrências? O arquivo conterá apenas os registros de ocorrências (sem senhas ou dados sensíveis).')) return;
+
+  const data = loadOccurrences();
+  // Exportar apenas os campos de ocorrência — sem senhas, tokens ou localStorage
+  const exportObj = {
+    exportedAt: new Date().toISOString(),
+    exportedBy: getSession()?.email || '—',
+    notice: 'Protótipo didático — dados fictícios',
+    occurrences: data.map(o => ({
+      id: o.id,
+      aluno: o.aluno,
+      matricula: o.matricula,
+      tipo: o.tipo,
+      prioridade: o.prioridade,
+      status: o.status,
+      descricao: o.descricao,
+      criadoEm: o.criadoEm,
+      // obsInterna incluída apenas para admin (quem pode exportar é admin)
+      obsInterna: o.obsInterna || '',
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ocorrencias_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  addLog('EXPORTAR', `${data.length} ocorrências exportadas`);
+  if (hasPermission('canViewLogs')) renderLogs();
+}
+
+/* ============================================================
+   18. LOGS — RENDERIZAR
+   ============================================================ */
+function renderLogs() {
+  if (!hasPermission('canViewLogs')) return;
+  const logs = loadLogs();
+  const container = document.getElementById('logsList');
+  if (!logs.length) {
+    container.innerHTML = '<p class="text-muted">Nenhum log registrado.</p>';
+    return;
   }
+  container.innerHTML = logs.map(l =>
+    `<div class="log-entry">[${sanitizeHTML(l.ts)}] <strong>${sanitizeHTML(l.role)}</strong> (${sanitizeHTML(l.user)}) — ${sanitizeHTML(l.action)}: ${sanitizeHTML(l.details)}</div>`
+  ).join('');
+}
 
-  if (!localStorage.getItem(STORAGE_KEYS.audit)) {
-    localStorage.setItem(STORAGE_KEYS.audit, JSON.stringify([{
-      when: new Date().toISOString(),
-      user: "sistema",
-      role: "SISTEMA",
-      action: "BASE_INICIAL_CRIADA",
-      detail: "Dados fictícios carregados no localStorage."
-    }]));
-  }
-
+/* ============================================================
+   19. LIMPAR LOGS (apenas admin, com confirmação e registro)
+   ============================================================ */
+function clearLogs() {
+  if (!hasPermission('canClearLogs')) { alert('Sem permissão.'); return; }
+  if (!confirm('⚠️ Limpar todos os logs de auditoria? Esta ação será registrada e não pode ser desfeita.')) return;
   const session = getSession();
-  if (session) {
-    showApp(session);
-  } else {
-    showLogin();
-  }
+  const clearEntry = {
+    ts: new Date().toISOString(),
+    user: session?.email || '—',
+    role: session?.role || '—',
+    action: 'LIMPAR_LOGS',
+    details: 'Log anterior apagado pelo administrador',
+  };
+  saveLogs([clearEntry]); // mantém apenas o registro da limpeza
+  renderLogs();
 }
 
-// --- EVENT LISTENERS ---
-
-loginForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  login(
-    document.querySelector("#email").value.trim(),
-    document.querySelector("#password").value
-  );
-});
-
-occurrenceForm.addEventListener("submit", createOccurrence);
-logoutBtn.addEventListener("click", logout);
-exportBtn.addEventListener("click", exportData);
-clearLogsBtn.addEventListener("click", clearLogs);
-resetBtn.addEventListener("click", resetData);
-if (searchInput) searchInput.addEventListener("input", render);
-
-// MELHORIA: Removido roleSelect change listener (perfil não pode ser alterado pelo usuário)
-
-// Expor funções para onclick nos botões da tabela
-window.deleteOccurrence = deleteOccurrence;
-window.changeStatus = changeStatus;
-
-// Iniciar
-boot();
+/* ============================================================
+   20. RESTAURAR DADOS INICIAIS (apenas admin, com confirmação)
+   ============================================================ */
+function restoreData() {
+  if (!hasPermission('canRestore')) { alert('Sem permissão.'); return; }
+  if (!confirm('⚠️ Restaurar dados iniciais? Todas as ocorrências atuais serão perdidas.')) return;
+  saveOccurrences(JSON.parse(JSON.stringify(INITIAL_DATA)));
+  addLog('RESTAURAR_DADOS', 'Dados restaurados para o estado inicial pelo administrador');
+  renderOccurrences();
+  if (hasPermission('canViewLogs')) renderLogs();
+}
