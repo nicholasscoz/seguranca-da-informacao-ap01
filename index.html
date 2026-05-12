@@ -10,223 +10,178 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <p class="eyebrow">Segurança da Informação</p>
-      <h1>Sistema de Ocorrências Acadêmicas</h1>
-      <p class="subtitle">Protótipo didático — versão com melhorias de segurança</p>
-    </div>
 
-    <div class="topbar-actions">
-      <span id="sessionBadge" class="badge muted">Sessão não iniciada</span>
-      <span id="sessionTimer" class="badge muted hidden">--:--</span>
-      <button id="logoutBtn" class="btn secondary hidden">Sair</button>
+  <!-- Banner de aviso de protótipo -->
+  <div class="prototype-banner" id="prototypeBanner">
+    ⚠️ <strong>PROTÓTIPO DIDÁTICO</strong> — Este sistema <strong>não possui back-end real</strong>.
+    Nenhum dado é protegido por servidor. <strong>Não insira dados reais.</strong>
+    <button class="banner-close" onclick="document.getElementById('prototypeBanner').style.display='none'" aria-label="Fechar aviso">✕</button>
+  </div>
+
+  <header class="app-header">
+    <div class="header-brand">
+      <span class="header-icon">🔒</span>
+      <div>
+        <h1>Sistema de Ocorrências Acadêmicas</h1>
+        <p class="header-subtitle">Protótipo didático — versão com melhorias de segurança</p>
+      </div>
+    </div>
+    <div class="header-session" id="headerSession" style="display:none">
+      <span id="sessionTimerDisplay" class="session-timer">Sessão: --:--</span>
+      <button class="btn btn-outline-danger btn-sm" onclick="logout()" id="btnLogout">Sair</button>
     </div>
   </header>
 
-  <!-- Banner de aviso de protótipo -->
-  <div class="system-warning">
-    ⚠️ Este é um protótipo didático sem back-end real. Nenhum dado é protegido por servidor. Não insira dados reais.
-  </div>
+  <main class="container">
 
-  <main class="layout">
-    <section id="loginView" class="card login-card">
-      <div>
-        <p class="eyebrow">Acesso</p>
-        <h2>Entrar no sistema</h2>
-        <p class="muted-text">
-          Use um dos usuários de demonstração para acessar o painel.
-        </p>
+    <!-- ===== LOGIN ===== -->
+    <section id="sectionLogin" class="card">
+      <h2 class="card-title">🔐 Entrar no sistema</h2>
+      <p class="text-muted">Use um dos usuários de demonstração para acessar o painel.</p>
+
+      <div id="loginAlert" class="alert alert-danger" style="display:none"></div>
+      <div id="loginLockAlert" class="alert alert-warning" style="display:none"></div>
+
+      <div class="form-group">
+        <label for="inputEmail">E-mail</label>
+        <input type="email" id="inputEmail" class="form-control" placeholder="email@faculdade.local" autocomplete="username" maxlength="100" />
       </div>
+      <div class="form-group">
+        <label for="inputPassword">Senha</label>
+        <input type="password" id="inputPassword" class="form-control" placeholder="Senha" autocomplete="current-password" maxlength="100" />
+      </div>
+      <button class="btn btn-primary" id="btnLogin" onclick="handleLogin()">Entrar</button>
 
-      <form id="loginForm" class="form-grid" novalidate>
-        <label>
-          E-mail
-          <input id="email" type="email" placeholder="seu@email.local" autocomplete="email" required />
-        </label>
-
-        <label>
-          Senha
-          <input id="password" type="password" placeholder="••••••" autocomplete="current-password" required />
-        </label>
-
-        <div id="loginError" class="error-msg hidden"></div>
-        <div id="loginLockout" class="error-msg hidden"></div>
-
-        <button class="btn primary" type="submit">Entrar</button>
-      </form>
-
-      <div class="demo-users">
-        <h3>Usuários de demonstração</h3>
-        <p class="muted-text">Senhas disponíveis apenas em ambiente de demonstração.</p>
+      <details class="demo-users-box">
+        <summary>Usuários de demonstração</summary>
+        <p class="text-muted text-sm">Senhas disponíveis apenas em ambiente de demonstração.</p>
         <ul>
           <li><strong>aluno@faculdade.local</strong></li>
           <li><strong>professor@faculdade.local</strong></li>
           <li><strong>admin@faculdade.local</strong></li>
         </ul>
-        <p class="muted-text" style="margin-top:0.5rem;font-size:0.82rem;">Senha padrão de demonstração: <code>Demo@2026</code> (aluno/professor) | <code>Admin@2026</code> (admin)</p>
-      </div>
+        <p class="text-sm">Senha padrão de demonstração: <code>Demo@2026</code> (aluno/professor) | <code>Admin@2026</code> (admin)</p>
+      </details>
     </section>
 
-    <section id="appView" class="hidden">
-      <section class="grid two">
-        <article class="card">
-          <p class="eyebrow">Usuário atual</p>
-          <h2 id="currentUserName">—</h2>
-          <p id="currentUserDetails" class="muted-text">—</p>
-          <!-- Removido: seletor de perfil livre. Perfil é fixo ao login. -->
-          <p class="muted-text" style="margin-top:0.5rem;font-size:0.82rem;">
-            Perfil: <strong id="currentRoleDisplay">—</strong>
-          </p>
-        </article>
+    <!-- ===== PAINEL PRINCIPAL ===== -->
+    <div id="sectionDashboard" style="display:none">
 
-        <article class="card">
-          <p class="eyebrow">Ações rápidas</p>
-          <h2>Ferramentas do painel</h2>
-          <div class="actions">
-            <button id="exportBtn" class="btn secondary hidden" type="button">Exportar ocorrências</button>
-            <button id="clearLogsBtn" class="btn secondary hidden" type="button">Limpar logs</button>
-            <button id="resetBtn" class="btn danger hidden" type="button">Restaurar dados iniciais</button>
+      <!-- Info usuário -->
+      <section class="card card-user-info">
+        <div class="user-info-row">
+          <div>
+            <h2 class="card-title" id="displayUserName">—</h2>
+            <p class="text-muted" id="displayUserEmail">—</p>
+            <span class="badge" id="displayUserRole">Perfil: <strong>—</strong></span>
           </div>
-          <p id="noActionsMsg" class="muted-text hidden" style="margin-top:0.5rem;">Nenhuma ação disponível para seu perfil.</p>
-        </article>
+          <div class="user-quick-actions">
+            <h3>Ferramentas do painel</h3>
+            <div class="quick-action-buttons">
+              <button class="btn btn-outline-primary btn-sm" id="btnExport" onclick="exportData()" style="display:none">📥 Exportar ocorrências</button>
+              <button class="btn btn-outline-warning btn-sm" id="btnClearLogs" onclick="clearLogs()" style="display:none">🗑️ Limpar logs</button>
+              <button class="btn btn-outline-secondary btn-sm" id="btnRestore" onclick="restoreData()" style="display:none">♻️ Restaurar dados iniciais</button>
+            </div>
+            <p class="text-muted text-sm" id="noActionsMsg">Nenhuma ação disponível para seu perfil.</p>
+          </div>
+        </div>
       </section>
 
-      <!-- Formulário de ocorrência: visível apenas para professor e admin -->
-      <section id="occurrenceSection" class="grid two hidden">
-        <article class="card">
-          <p class="eyebrow">Nova ocorrência</p>
-          <h2>Registrar ocorrência acadêmica</h2>
+      <!-- Formulário nova ocorrência -->
+      <section class="card" id="sectionNewOccurrence" style="display:none">
+        <h2 class="card-title">📋 Registrar ocorrência acadêmica</h2>
+        <div id="occurrenceAlert" class="alert alert-danger" style="display:none"></div>
 
-          <form id="occurrenceForm" class="form-grid" novalidate>
-            <label>
-              Nome do aluno
-              <input id="studentName" type="text" placeholder="Ex.: João da Silva" required maxlength="100" />
-            </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="occAluno">Nome do aluno <span class="required">*</span></label>
+            <input type="text" id="occAluno" class="form-control" maxlength="100" required placeholder="Nome completo" />
+          </div>
+          <div class="form-group">
+            <label for="occMatricula">Matrícula <span class="required">*</span></label>
+            <input type="text" id="occMatricula" class="form-control" maxlength="20" required pattern="[A-Za-z0-9\-]+" placeholder="Ex: 2024001" />
+          </div>
+        </div>
 
-            <label>
-              Matrícula
-              <input id="studentId" type="text" placeholder="Ex.: 202400123" required pattern="[0-9]{6,12}" maxlength="12" />
-            </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="occTipo">Tipo de ocorrência <span class="required">*</span></label>
+            <select id="occTipo" class="form-control" required>
+              <option value="">Selecione...</option>
+              <option value="Nota">Nota</option>
+              <option value="Frequência">Frequência</option>
+              <option value="Comportamento">Comportamento</option>
+              <option value="Solicitação administrativa">Solicitação administrativa</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="occPrioridade">Prioridade <span class="required">*</span></label>
+            <select id="occPrioridade" class="form-control" required>
+              <option value="">Selecione...</option>
+              <option value="Baixa">Baixa</option>
+              <option value="Média">Média</option>
+              <option value="Alta">Alta</option>
+              <option value="Crítica">Crítica</option>
+            </select>
+          </div>
+        </div>
 
-            <!-- CPF removido do formulário: coleta excessiva (minimização de dados / LGPD) -->
+        <div class="form-group">
+          <label for="occDescricao">Descrição da ocorrência <span class="required">*</span></label>
+          <textarea id="occDescricao" class="form-control" rows="3" maxlength="1000" required placeholder="Descreva a ocorrência de forma objetiva..."></textarea>
+        </div>
 
-            <label>
-              Tipo de ocorrência
-              <select id="category" required>
-                <option value="">Selecione...</option>
-                <option>Nota</option>
-                <option>Frequência</option>
-                <option>Comportamento</option>
-                <option>Solicitação administrativa</option>
-                <option>Outro</option>
-              </select>
-            </label>
+        <div class="form-group" id="adminObsGroup" style="display:none">
+          <label for="occObsInterna">Observação interna <span class="badge badge-admin">restrita a administradores</span></label>
+          <textarea id="occObsInterna" class="form-control" rows="2" maxlength="500" placeholder="Observação interna (visível apenas para administradores)..."></textarea>
+        </div>
 
-            <label>
-              Prioridade
-              <select id="priority" required>
-                <option value="">Selecione...</option>
-                <option>Baixa</option>
-                <option>Média</option>
-                <option>Alta</option>
-                <option>Crítica</option>
-              </select>
-            </label>
-
-            <label class="span-2">
-              Descrição da ocorrência
-              <textarea id="description" rows="4" placeholder="Descreva o ocorrido..." required maxlength="2000"></textarea>
-            </label>
-
-            <!-- Observação interna: visível apenas para admin -->
-            <label id="internalNoteLabel" class="span-2 hidden">
-              Observação interna (restrita a administradores)
-              <textarea id="internalNote" rows="2" placeholder="Informação visível apenas para administradores..." maxlength="1000"></textarea>
-            </label>
-
-            <label class="check span-2">
-              <input id="privacyAck" type="checkbox" required />
-              Confirmo que os dados registrados são fictícios e que possuo autorização para este registro em ambiente de demonstração.
-            </label>
-
-            <button class="btn primary span-2" type="submit">Salvar ocorrência</button>
-          </form>
-        </article>
-
-        <article class="card">
-          <p class="eyebrow">Busca</p>
-          <h2>Pesquisar registros</h2>
-
+        <div class="form-group checkbox-group">
           <label>
-            Termo de busca
-            <input id="search" type="search" placeholder="Nome, matrícula ou texto..." maxlength="100" />
+            <input type="checkbox" id="occConsentimento" required />
+            Confirmo que os dados registrados são <strong>fictícios</strong> e que possuo autorização para este registro em ambiente de demonstração.
           </label>
-
-          <div class="summary">
-            <div>
-              <strong id="totalOccurrences">0</strong>
-              <span>ocorrências</span>
-            </div>
-            <div>
-              <strong id="criticalOccurrences">0</strong>
-              <span>críticas</span>
-            </div>
-          </div>
-
-          <div class="notice">
-            Os dados exibidos respeitam o perfil do usuário logado.
-          </div>
-        </article>
-      </section>
-
-      <!-- Tabela de ocorrências -->
-      <section id="tableSection" class="card hidden">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Registros</p>
-            <h2>Ocorrências cadastradas</h2>
-          </div>
-          <span id="lastUpdate" class="badge">—</span>
         </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Aluno</th>
-                <th>Matrícula</th>
-                <th>Tipo</th>
-                <th>Prioridade</th>
-                <th>Status</th>
-                <th>Descrição</th>
-                <th id="actionsHeader" class="hidden">Ações</th>
-              </tr>
-            </thead>
-            <tbody id="occurrencesTable"></tbody>
-          </table>
+        <button class="btn btn-primary" onclick="saveOccurrence()">💾 Salvar ocorrência</button>
+      </section>
+
+      <!-- Busca e estatísticas -->
+      <section class="card" id="sectionSearch">
+        <h2 class="card-title">🔍 Pesquisar registros</h2>
+        <div class="form-group">
+          <input type="text" id="searchInput" class="form-control" placeholder="Buscar por nome ou matrícula..." maxlength="100" oninput="renderOccurrences()" />
+        </div>
+        <div class="stats-row">
+          <div class="stat-box"><span id="statTotal">0</span><label>ocorrências</label></div>
+          <div class="stat-box stat-critical"><span id="statCritical">0</span><label>críticas</label></div>
+        </div>
+        <p class="text-muted text-sm">Os dados exibidos respeitam o perfil do usuário logado.</p>
+      </section>
+
+      <!-- Listagem -->
+      <section class="card" id="sectionList">
+        <h2 class="card-title">📄 Ocorrências cadastradas</h2>
+        <div id="occurrencesList">
+          <p class="text-muted text-center">—</p>
         </div>
       </section>
 
-      <!-- Logs: visível apenas para admin -->
-      <section id="logsSection" class="card hidden">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Auditoria</p>
-            <h2>Logs do sistema</h2>
-          </div>
-          <span class="badge muted">armazenamento local</span>
+      <!-- Logs de auditoria (apenas admin) -->
+      <section class="card" id="sectionLogs" style="display:none">
+        <h2 class="card-title">🕵️ Logs do sistema <span class="badge badge-admin">armazenamento local</span></h2>
+        <div id="logsList" class="logs-container">
+          <p class="text-muted">Nenhum log registrado.</p>
         </div>
-
-        <div id="auditLog" class="log-list"></div>
       </section>
-    </section>
+
+    </div><!-- /sectionDashboard -->
+
   </main>
 
-  <footer class="footer">
-    <p>
-      Protótipo estático para atividade prática — versão com melhorias de segurança. Publicável em GitHub Pages.
-    </p>
+  <footer class="app-footer">
+    Protótipo estático para atividade prática — versão com melhorias de segurança. Publicável em GitHub Pages.
   </footer>
 
   <script src="app.js"></script>
